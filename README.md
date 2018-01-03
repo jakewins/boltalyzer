@@ -27,6 +27,11 @@ The recommended approach is to terminate TLS via nginx, haproxy or some such on 
 
     nohup sudo tcpdump -i lo -w my-network-dump.pcap port 7687 &
     
+If you are not recording localhost traffic, you need to pick a different `-i`. 
+Use `tcpdump -D` to see available options for `-i`.
+
+More details here: https://danielmiessler.com/study/tcpdump/
+    
 ### 2. Give the dump to boltalyzer
 
     boltalyzer my-network-dump.pcap
