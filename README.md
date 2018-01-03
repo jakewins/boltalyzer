@@ -15,7 +15,7 @@ This tool does what query logging does, and adds:
     (
       git clone git@github.com:jakewins/boltalyzer.git
       cd boltalyzer && mvn clean package
-      ln -s /usr/local/bin/boltalyzer `pwd`/boltalyzer
+      ln -s `pwd`/boltalyzer /usr/local/bin/boltalyzer
     )
     
 ## Use
