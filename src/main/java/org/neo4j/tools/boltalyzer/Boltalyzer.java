@@ -20,16 +20,27 @@
 package org.neo4j.tools.boltalyzer;
 
 
+import org.neo4j.helpers.Args;
+import org.neo4j.tools.boltalyzer.serialize.Bolt2JSON;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
-import org.neo4j.helpers.Args;
-
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singletonList;
+import static org.neo4j.tools.boltalyzer.Dict.dict;
 import static org.neo4j.tools.boltalyzer.Fields.*;
 import static org.neo4j.tools.boltalyzer.TimeMapper.modeForName;
 import static org.neo4j.tools.boltalyzer.TimeMapper.unitForName;
@@ -45,11 +56,18 @@ public class Boltalyzer
                     "  boltalyzer [options] <PCAP_FILE>\n" +
                     "\n" +
                     "OPTIONS\n" +
+                    "  --params [true|false] (default: false)\n" +
+                    "      Include query params in output\n" +
                     "  --timemode [epoch | global-incremental | session-delta | iso8601]  (default: session-delta)\n" +
                     "  --timeunit [us | ms]  (default: us)\n" +
                     "  --serverport <port>  (default: 7687)\n" +
                     "  --session [<n> | all]  \n" +
                     "      Filter which sessions to show, session id is incrementally determined in order of sessions appearing in the data dump.  (default: all)\n" +
+                    "  --mode [LOG | QUERYDUMP] (default: LOG)\n" +
+                    "      LOG: Output a play-by-play log of messages sent\n" +
+                    "      QUERYDUMP: Write each query executed to a JSON file to '--dir'\n" +
+                    "  --dir <path/to/query/dump/dir> (default: dump)\n" +
+                    "      Queries are dumped to this directory if mode is QUERYDUMP\n" +
                     "  --skip <n>  Skip n packets before starting output    (default: 0)\n"
             );
             System.exit( 0 );
@@ -73,29 +91,88 @@ public class Boltalyzer
                     // So, parse out a stream of packets from the pcap file
                     .parse( pcap )
 
-                            // Modify the timestamps on those packets to fit the users chosen time mode
+                    // Modify the timestamps on those packets to fit the users chosen time mode
                     .map( modeForName( args.get( "timemode", "session-delta" ) ) )
 
-                            // And convert the timestamps to whatever units the user wants
+                    // And convert the timestamps to whatever units the user wants
                     .map( unitForName( args.get( "timeunit", "us" ) ) )
 
-                            // Decorate each packet with semantic information about what the actual bolt messages were,
-                            // what the logical session and logical source of the message was
+                    // Decorate each packet with semantic information about what the actual bolt messages were,
+                    // what the logical session and logical source of the message was
                     .map( new AddBoltDescription(
                             args.getNumber( "serverport", 7687 ).intValue(),
                             args.getBoolean( "params", false ) ) )
 
-                            // Now we can skip things (currently the step above needs to see all packets to maintain message framing alignment, so
-                            // we can't skip until after the step above)
+                    // Now we can skip things (currently the step above needs to see all packets to maintain message framing alignment, so
+                    // we can't skip until after the step above)
                     .skip( args.getNumber( "skip", 0 ).intValue() )
 
-                            // Filter out to only look sessions the user cares about
+                    // Filter out to only look sessions the user cares about
                     .filter( sessionFilter( args.get( "session", "all" ) ) )
 
-                            // And convert the result to a readable output string
-                    .map( ( p ) -> String.format( "%s %s %s%s", p.get( timeString ), p.get( session ).name(), p.get( logicalSource ), p.get( description ) ) )
-                    .forEach( System.out::println );
+                    // Do the thing the user asked for
+                    .forEach(modeOperation(args));
         }
+    }
+
+    private static Consumer<Dict> modeOperation(Args args) throws IOException {
+        String mode = args.get("mode", "log");
+        if(mode.equalsIgnoreCase("querydump")) {
+            return queryDumper(args.get("dir", "dump"));
+        }
+        if(mode.equalsIgnoreCase("log")) {
+            Function<Dict, String> describe = describer();
+            return (p) -> System.out.println(describe.apply(p));
+        }
+
+        throw new RuntimeException("Unknown mode: " + mode);
+    }
+
+    private static Function<Dict, String> describer() {
+        return (p) -> {
+            String messages = p.get(description, emptyList()).stream().map(m -> {
+                try {
+                    return Bolt2JSON.mapper().writeValueAsString(m); // todo
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }).collect(Collectors.joining("\n"));
+
+            return String.format("%s\t%s\t%s\t%s",
+                    p.get(timeString),
+                    p.get(session).name(),
+                    p.get(logicalSource),
+                    messages);
+        };
+    }
+
+    private static Consumer<Dict> queryDumper(String path) throws IOException {
+        if(path.equals("")) {
+            return d -> {};
+        }
+
+        Map<String, AtomicLong> queryIds = new HashMap<>();
+        Path out = Paths.get(path);
+        Files.createDirectories(out);
+        return p -> {
+            p.get(Fields.description, emptyList())
+                    .forEach(m -> {
+                        if(m.get(Message.type).equals("RUN")) {
+                            String session = p.get(Fields.session).name();
+                            Path qpath = out.resolve(String.format("%s-Q%d.json", session,
+                                    queryIds.computeIfAbsent(session, s -> new AtomicLong()).getAndIncrement()));
+                            try {
+                                Bolt2JSON.mapper().writeValue(qpath.toFile(), dict(
+                                    "statement", m.get(Message.statement),
+                                    "params", m.get(Message.params),
+                                    "time", p.get(Fields.timestamp)
+                                ));
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    });
+        };
     }
 
     private static Predicate<Dict> sessionFilter( String name )
@@ -163,25 +240,31 @@ public class Boltalyzer
             return packet;
         }
 
-        private String describeClientPayload( ByteBuffer packet, AnalyzedSession sess ) {
+        private List<Dict> describeClientPayload(ByteBuffer packet, AnalyzedSession sess ) {
             try
             {
                 return sess.describeClientPayload( packet );
             }
             catch ( IOException e )
             {
-                return String.format("[Unparseable] (%s) %s", e.getMessage(), bytesToHex( packet ));
+                return singletonList(
+                        dict(
+                                Message.type, "<UNPARSEABLE>",
+                                Message.message, String.format("(%s) %s", e.getMessage(), bytesToHex( packet ))));
             }
         }
 
-        private String describeServerPayload( ByteBuffer packet, AnalyzedSession sess ) {
+        private List<Dict> describeServerPayload( ByteBuffer packet, AnalyzedSession sess ) {
             try
             {
                 return sess.describeServerPayload( packet );
             }
             catch ( IOException e )
             {
-                return String.format("[Unparseable] (%s) %s", e.getMessage(), bytesToHex( packet ));
+                return singletonList(
+                        dict(
+                                Message.type, "<UNPARSEABLE>",
+                                Message.message, String.format("(%s) %s", e.getMessage(), bytesToHex( packet ))));
             }
         }
 

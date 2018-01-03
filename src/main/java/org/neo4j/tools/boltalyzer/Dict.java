@@ -27,6 +27,18 @@ import java.util.HashMap;
  */
 public class Dict extends HashMap<String, Object>
 {
+    public static Dict dict(Object ... alternatingKeyValue) {
+        Dict d = new Dict();
+        for (int i = 0; i < alternatingKeyValue.length; i+=2) {
+            if(alternatingKeyValue[i] instanceof Field) {
+                d.put((Field)alternatingKeyValue[i], alternatingKeyValue[i+1]);
+            } else {
+                d.put(alternatingKeyValue[i].toString(), alternatingKeyValue[i + 1]);
+            }
+        }
+        return d;
+    }
+
     public <T> Dict put( Field<T> field, T val )
     {
         field.put( this, val );
@@ -36,5 +48,13 @@ public class Dict extends HashMap<String, Object>
     public <T> T get( Field<T> field )
     {
         return field.get( this );
+    }
+
+    public <T> T get(Field<T> field, T defaultValue) {
+        T val = get(field);
+        if( val == null ) {
+            return defaultValue;
+        }
+        return val;
     }
 }

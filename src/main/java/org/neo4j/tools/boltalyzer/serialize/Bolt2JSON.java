@@ -4,6 +4,7 @@ import org.codehaus.jackson.JsonGenerator;
 import org.codehaus.jackson.JsonProcessingException;
 import org.codehaus.jackson.Version;
 import org.codehaus.jackson.map.JsonSerializer;
+import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializerProvider;
 import org.codehaus.jackson.map.module.SimpleModule;
 import org.neo4j.graphdb.Label;
@@ -11,7 +12,13 @@ import org.neo4j.graphdb.Node;
 
 import java.io.IOException;
 
-public class BoltJacksonModule {
+public class Bolt2JSON {
+    private final static ObjectMapper mapper = new ObjectMapper().withModule(create());
+
+    public static ObjectMapper mapper() {
+        return mapper;
+    }
+
     public static SimpleModule create()
     {
         SimpleModule module = new SimpleModule("BoltSerialization", Version.unknownVersion());

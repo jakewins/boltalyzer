@@ -22,12 +22,12 @@ package org.neo4j.tools.boltalyzer;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import org.neo4j.tools.boltalyzer.bolt1.Dechunker;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-
-import org.neo4j.bolt.v1.transport.BoltV1Dechunker;
-import org.neo4j.tools.boltalyzer.bolt1.Dechunker;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Stateful object tracking an ongoing session, able to decode transport transmissions as they arrive and describe them in a helpful way.
@@ -60,7 +60,7 @@ public class AnalyzedSession
         return name;
     }
 
-    public String describeServerPayload( ByteBuffer payload ) throws IOException
+    public List<Dict> describeServerPayload( ByteBuffer payload ) throws IOException
     {
         ByteBuf data = Unpooled.wrappedBuffer( payload );
         String out = " <EMPTY>";
@@ -76,14 +76,14 @@ public class AnalyzedSession
 
         if( data.readableBytes() == 0 )
         {
-            return out;
+            return Collections.emptyList();
         }
 
         serverStream.handle( data );
         return serverStreamDescriber.flushDescription();
     }
 
-    public String describeClientPayload( ByteBuffer payload ) throws IOException
+    public List<Dict> describeClientPayload(ByteBuffer payload ) throws IOException
     {
         ByteBuf data = Unpooled.wrappedBuffer( payload );
         String out = " <EMPTY>";
@@ -98,7 +98,7 @@ public class AnalyzedSession
 
         if( data.readableBytes() == 0 )
         {
-            return out;
+            return Collections.emptyList();
         }
 
         clientStream.handle( data );

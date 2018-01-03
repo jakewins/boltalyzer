@@ -20,25 +20,22 @@
 package org.neo4j.tools.boltalyzer;
 
 import org.codehaus.jackson.map.ObjectMapper;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-
 import org.neo4j.bolt.v1.messaging.MessageHandler;
 import org.neo4j.bolt.v1.runtime.spi.Record;
 import org.neo4j.kernel.api.exceptions.Status;
-import org.neo4j.tools.boltalyzer.serialize.BoltJacksonModule;
+import org.neo4j.tools.boltalyzer.serialize.Bolt2JSON;
 
-import static java.util.Arrays.asList;
-import static java.util.Collections.singletonList;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+import static org.neo4j.tools.boltalyzer.Dict.dict;
 
 public class BoltMessageDescriber implements MessageHandler<RuntimeException>
 {
-    private final ObjectMapper mapper = new ObjectMapper().withModule(BoltJacksonModule.create());
-    private final List<String> messages = new ArrayList<>();
+    private final ObjectMapper mapper = new ObjectMapper().withModule(Bolt2JSON.create());
+    private final List<Dict> messages = new ArrayList<>();
 
     private final boolean describeParams;
 
@@ -50,96 +47,84 @@ public class BoltMessageDescriber implements MessageHandler<RuntimeException>
     @Override
     public void handleRunMessage( String statement, Map<String,Object> params ) throws RuntimeException
     {
-        try
-        {
-            if(describeParams) {
-                messages.add( "RUN " + mapper.writeValueAsString( asList( statement, params ) ) );
-            } else {
-                messages.add( "RUN " + mapper.writeValueAsString( singletonList( statement ) ) );
-            }
-        }
-        catch ( IOException e )
-        {
-            throw new RuntimeException( e );
+        if(describeParams) {
+            messages.add( dict(
+                    Fields.Message.type, "RUN",
+                    Fields.Message.statement, statement,
+                    Fields.Message.params, params ));
+        } else {
+
+            messages.add( dict(
+                    Fields.Message.type, "RUN",
+                    Fields.Message.statement, statement,
+                    Fields.Message.params, null ));
         }
     }
 
     @Override
     public void handlePullAllMessage() throws RuntimeException
     {
-        messages.add( "PULL_ALL" );
+        messages.add( dict( Fields.Message.type, "PULL_ALL" ) );
     }
 
     @Override
     public void handleDiscardAllMessage() throws RuntimeException
     {
-        messages.add( "PULL_ALL" );
+        messages.add( dict( Fields.Message.type, "DISCARD_ALL" ) );
     }
 
     @Override
     public void handleResetMessage() throws RuntimeException
     {
-        messages.add( "RESET" );
+        messages.add( dict( Fields.Message.type, "RESET" ) );
     }
 
     @Override
     public void handleAckFailureMessage() throws RuntimeException
     {
-        messages.add( "ACK_FAILURE" );
+        messages.add( dict( Fields.Message.type, "ACK_FAILURE" ) );
     }
 
     @Override
     public void handleRecordMessage( Record item ) throws RuntimeException
     {
-        try {
-            messages.add( "RECORD " + mapper.writeValueAsString(item.fields()) );
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        messages.add( dict( Fields.Message.type, "RECORD",
+                Fields.Message.fields, item.fields() ));
     }
 
     @Override
     public void handleSuccessMessage( Map<String,Object> metadata ) throws RuntimeException
     {
-        try {
-            messages.add( "SUCCESS " + mapper.writeValueAsString(metadata) );
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        messages.add( dict( Fields.Message.type, "SUCCESS", Fields.Message.metadata, metadata) );
     }
 
     @Override
     public void handleFailureMessage( Status status, String message ) throws RuntimeException
     {
-        try {
-            messages.add( "FAILURE " + mapper.writeValueAsString(asList(status.toString(), message)) );
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        messages.add( dict(
+                Fields.Message.type, "FAILURE",
+                Fields.Message.status, status,
+                Fields.Message.message, message) );
     }
 
     @Override
     public void handleIgnoredMessage() throws RuntimeException
     {
-        messages.add( "IGNORED" );
+        messages.add( dict( Fields.Message.type, "IGNORED" ) );
     }
 
     @Override
     public void handleInitMessage( String clientName, Map<String,Object> credentials ) throws RuntimeException
     {
-        messages.add( "INIT" );
+        messages.add( dict( Fields.Message.type, "INIT" ) );
     }
 
-    /** Return a description of all messages recieved since last time this method was called */
-    public String flushDescription()
+    /** Return a description of all messages received since last time this method was called */
+    public List<Dict> flushDescription()
     {
-        StringBuilder sb = new StringBuilder();
-        for ( String message : messages )
-        {
-            sb.append( "\n  ").append( message );
-        }
-
+        List<Dict> out = new LinkedList<>();
+        out.addAll(messages);
         messages.clear();
-        return sb.toString();
+        return out;
     }
 }
