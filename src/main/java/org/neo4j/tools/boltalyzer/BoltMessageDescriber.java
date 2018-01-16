@@ -19,11 +19,9 @@
  */
 package org.neo4j.tools.boltalyzer;
 
-import org.codehaus.jackson.map.ObjectMapper;
 import org.neo4j.bolt.v1.messaging.MessageHandler;
 import org.neo4j.bolt.v1.runtime.spi.Record;
 import org.neo4j.kernel.api.exceptions.Status;
-import org.neo4j.tools.boltalyzer.serialize.Bolt2JSON;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -34,31 +32,15 @@ import static org.neo4j.tools.boltalyzer.Dict.dict;
 
 public class BoltMessageDescriber implements MessageHandler<RuntimeException>
 {
-    private final ObjectMapper mapper = new ObjectMapper().withModule(Bolt2JSON.create());
     private final List<Dict> messages = new ArrayList<>();
-
-    private final boolean describeParams;
-
-    public BoltMessageDescriber( boolean describeParams )
-    {
-        this.describeParams = describeParams;
-    }
 
     @Override
     public void handleRunMessage( String statement, Map<String,Object> params ) throws RuntimeException
     {
-        if(describeParams) {
-            messages.add( dict(
-                    Fields.Message.type, "RUN",
-                    Fields.Message.statement, statement,
-                    Fields.Message.params, params ));
-        } else {
-
-            messages.add( dict(
-                    Fields.Message.type, "RUN",
-                    Fields.Message.statement, statement,
-                    Fields.Message.params, null ));
-        }
+        messages.add( dict(
+                Fields.Message.type, "RUN",
+                Fields.Message.statement, statement,
+                Fields.Message.params, null ));
     }
 
     @Override

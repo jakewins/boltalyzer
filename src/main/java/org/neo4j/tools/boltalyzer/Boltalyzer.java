@@ -20,7 +20,11 @@
 package org.neo4j.tools.boltalyzer;
 
 
+import org.neo4j.driver.v1.Driver;
+import org.neo4j.driver.v1.GraphDatabase;
+import org.neo4j.driver.v1.Session;
 import org.neo4j.helpers.Args;
+import org.neo4j.helpers.collection.Pair;
 import org.neo4j.tools.boltalyzer.serialize.Bolt2JSON;
 
 import java.io.FileInputStream;
@@ -32,6 +36,8 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -40,6 +46,8 @@ import java.util.stream.Collectors;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
+import static java.util.concurrent.Executors.newSingleThreadExecutor;
+import static org.neo4j.helpers.collection.Pair.pair;
 import static org.neo4j.tools.boltalyzer.Dict.dict;
 import static org.neo4j.tools.boltalyzer.Fields.*;
 import static org.neo4j.tools.boltalyzer.TimeMapper.modeForName;
@@ -47,7 +55,7 @@ import static org.neo4j.tools.boltalyzer.TimeMapper.unitForName;
 
 public class Boltalyzer
 {
-    public static void main(String ... argv) throws IOException
+    public static void main(String ... argv) throws Exception
     {
         if ( argv.length == 0 || argv[0].equals( "-h" ) || argv[0].equals( "--help" ) )
         {
@@ -56,18 +64,19 @@ public class Boltalyzer
                     "  boltalyzer [options] <PCAP_FILE>\n" +
                     "\n" +
                     "OPTIONS\n" +
-                    "  --params [true|false] (default: false)\n" +
-                    "      Include query params in output\n" +
                     "  --timemode [epoch | global-incremental | session-delta | iso8601]  (default: session-delta)\n" +
                     "  --timeunit [us | ms]  (default: us)\n" +
                     "  --serverport <port>  (default: 7687)\n" +
                     "  --session [<n> | all]  \n" +
                     "      Filter which sessions to show, session id is incrementally determined in order of sessions appearing in the data dump.  (default: all)\n" +
-                    "  --mode [LOG | QUERYDUMP] (default: LOG)\n" +
+                    "  --mode [LOG | QUERYDUMP | REPLAY] (default: LOG)\n" +
                     "      LOG: Output a play-by-play log of messages sent\n" +
                     "      QUERYDUMP: Write each query executed to a JSON file to '--dir'\n" +
+                    "      REPLAY: Replay the dump against `--target`\n" +
                     "  --dir <path/to/query/dump/dir> (default: dump)\n" +
                     "      Queries are dumped to this directory if mode is QUERYDUMP\n" +
+                    "  --target <bolt-uri>\n" +
+                    "      Bolt URL used when in REPLAY mode.\n" +
                     "  --skip <n>  Skip n packets before starting output    (default: 0)\n"
             );
             System.exit( 0 );
@@ -86,36 +95,37 @@ public class Boltalyzer
             // functions acting on maps. This should put us in a situation where we can construct different pipelines from a common set of
             // pipeline functions.
 
-            new PCAPParser()
+            try(ClosableConsumer<Dict> mode = modeOperation(args)) {
+                new PCAPParser()
 
-                    // So, parse out a stream of packets from the pcap file
-                    .parse( pcap )
+                        // So, parse out a stream of packets from the pcap file
+                        .parse(pcap)
 
-                    // Modify the timestamps on those packets to fit the users chosen time mode
-                    .map( modeForName( args.get( "timemode", "session-delta" ) ) )
+                        // Modify the timestamps on those packets to fit the users chosen time mode
+                        .map(modeForName(args.get("timemode", "session-delta")))
 
-                    // And convert the timestamps to whatever units the user wants
-                    .map( unitForName( args.get( "timeunit", "us" ) ) )
+                        // And convert the timestamps to whatever units the user wants
+                        .map(unitForName(args.get("timeunit", "us")))
 
-                    // Decorate each packet with semantic information about what the actual bolt messages were,
-                    // what the logical session and logical source of the message was
-                    .map( new AddBoltDescription(
-                            args.getNumber( "serverport", 7687 ).intValue(),
-                            args.getBoolean( "params", false ) ) )
+                        // Decorate each packet with semantic information about what the actual bolt messages were,
+                        // what the logical session and logical source of the message was
+                        .map(new AddBoltDescription(
+                                args.getNumber("serverport", 7687).intValue()))
 
-                    // Now we can skip things (currently the step above needs to see all packets to maintain message framing alignment, so
-                    // we can't skip until after the step above)
-                    .skip( args.getNumber( "skip", 0 ).intValue() )
+                        // Now we can skip things (currently the step above needs to see all packets to maintain message framing alignment, so
+                        // we can't skip until after the step above)
+                        .skip(args.getNumber("skip", 0).intValue())
 
-                    // Filter out to only look sessions the user cares about
-                    .filter( sessionFilter( args.get( "session", "all" ) ) )
+                        // Filter out to only look sessions the user cares about
+                        .filter(sessionFilter(args.get("session", "all")))
 
-                    // Do the thing the user asked for
-                    .forEach(modeOperation(args));
+                        // Do the thing the user asked for
+                        .forEach(mode);
+            }
         }
     }
 
-    private static Consumer<Dict> modeOperation(Args args) throws IOException {
+    private static ClosableConsumer<Dict> modeOperation(Args args) throws IOException {
         String mode = args.get("mode", "log");
         if(mode.equalsIgnoreCase("querydump")) {
             return queryDumper(args.get("dir", "dump"));
@@ -123,6 +133,13 @@ public class Boltalyzer
         if(mode.equalsIgnoreCase("log")) {
             Function<Dict, String> describe = describer();
             return (p) -> System.out.println(describe.apply(p));
+        }
+        if(mode.equalsIgnoreCase("replay")) {
+            if(!args.has("target")) {
+                System.err.println("Must specify --target to replay; eg. '--target bolt://neo4j:neo4j@localhost:7687'");
+                System.exit(1);
+            }
+            return replay(args.get("target"));
         }
 
         throw new RuntimeException("Unknown mode: " + mode);
@@ -146,7 +163,7 @@ public class Boltalyzer
         };
     }
 
-    private static Consumer<Dict> queryDumper(String path) throws IOException {
+    private static ClosableConsumer<Dict> queryDumper(String path) throws IOException {
         if(path.equals("")) {
             return d -> {};
         }
@@ -159,7 +176,7 @@ public class Boltalyzer
                     .forEach(m -> {
                         if(m.get(Message.type).equals("RUN")) {
                             String session = p.get(Fields.session).name();
-                            Path qpath = out.resolve(String.format("%s-Q%d.json", session,
+                            Path qpath = out.resolve(String.format("%s-%s-Q%d.json", p.get(timeString), session,
                                     queryIds.computeIfAbsent(session, s -> new AtomicLong()).getAndIncrement()));
                             try {
                                 Bolt2JSON.mapper().writeValue(qpath.toFile(), dict(
@@ -173,6 +190,83 @@ public class Boltalyzer
                         }
                     });
         };
+    }
+
+    interface ClosableConsumer<T> extends AutoCloseable, Consumer<T> {
+        @Override
+        default void close() throws Exception {}
+    }
+
+    private static ClosableConsumer<Dict> replay(String connectionString) throws IOException
+    {
+        System.out.println("Replaying against " + connectionString);
+
+        Driver driver = GraphDatabase.driver(connectionString);
+        Function<String, Pair<Session, ExecutorService>> newSession = (s) -> pair(driver.session(), newSingleThreadExecutor());
+        Map<String, Pair<Session, ExecutorService>> sessions = new HashMap<>();
+
+        long replayStartUs = System.nanoTime() / 1000;
+        AtomicLong streamStartTimeUs = new AtomicLong(-1);
+
+        return new ClosableConsumer<Dict>() {
+            @Override
+            public void close() throws Exception {
+                sessions.values().forEach(p -> {
+                    ExecutorService other = p.other();
+                    other.shutdown();
+                    try {
+                        other.awaitTermination(1, TimeUnit.MINUTES);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                });
+            }
+
+            @Override
+            public void accept(Dict p) {
+                if(streamStartTimeUs.get() == -1)
+                {
+                    streamStartTimeUs.set(p.get(Fields.timestamp));
+                }
+                p.get(Fields.description, emptyList())
+                        .forEach(m -> {
+                            if(m.get(Message.type).equals("RUN")) {
+                                String sessionName = p.get(Fields.session).name();
+
+                                Pair<Session, ExecutorService> worker = sessions.computeIfAbsent(sessionName, newSession);
+                                worker.other().execute(() -> {
+                                    try {
+                                        long currentDeltaUs = System.nanoTime() / 1000 - replayStartUs;
+                                        long messageDeltaUs = p.get(Fields.timestamp) - streamStartTimeUs.get();
+
+                                        if (currentDeltaUs < messageDeltaUs) {
+                                            // Pace requests to roughly match the original load
+                                            Thread.sleep((messageDeltaUs - currentDeltaUs) / 1000);
+                                        }
+
+                                        // TODO Note that this doesn't properly pipeline the way the original did,
+                                        // should revise this to act on the connection level.
+
+                                        String abbreviatedStatement = ellipsis(m.get(Message.statement), 80);
+                                        System.out.println(String.format("%s: %s", sessionName, abbreviatedStatement));
+                                        worker.first().run(m.get(Message.statement), m.get(Message.params)).consume();
+                                    }
+                                    catch(Exception e)
+                                    {
+                                        e.printStackTrace();
+                                    }
+                                });
+                            }
+                        });
+            }
+        };
+    }
+
+    public static String ellipsis(String input, int maxCharacters) {
+        if (input.length() < maxCharacters) {
+            return input;
+        }
+        return input.substring(0, maxCharacters - 3) + "...";
     }
 
     private static Predicate<Dict> sessionFilter( String name )
@@ -189,13 +283,7 @@ public class Boltalyzer
     public static class SessionRepository
     {
         private final Map<Object,AnalyzedSession> openSessions = new HashMap<>();
-        private final boolean describeParams;
         private int sessionCount = 0;
-
-        public SessionRepository( boolean describeParams )
-        {
-            this.describeParams = describeParams;
-        }
 
         public AnalyzedSession session( Object connectionKey )
         {
@@ -203,7 +291,7 @@ public class Boltalyzer
             if( session == null )
             {
                 int sid = sessionCount++;
-                session = new AnalyzedSession(  String.format("session-%03d", sid ), sid, describeParams );
+                session = new AnalyzedSession(  String.format("session-%03d", sid ), sid);
                 openSessions.put( connectionKey, session );
             }
             return session;
@@ -216,10 +304,10 @@ public class Boltalyzer
         private final SessionRepository sessions;
         private final int serverPort;
 
-        public AddBoltDescription( int serverPort, boolean describeParams )
+        public AddBoltDescription( int serverPort )
         {
             this.serverPort = serverPort;
-            this.sessions = new SessionRepository( describeParams );
+            this.sessions = new SessionRepository();
         }
 
         @Override

@@ -45,12 +45,12 @@ public class AnalyzedSession
     private int clientHandshakeRemaining = 16;
     private int serverHandshakeRemaining = 4;
 
-    public AnalyzedSession( String name, long id, boolean describeParams)
+    public AnalyzedSession(String name, long id)
     {
         this.name = name;
         this.id = id;
-        this.clientStreamDescriber = new BoltMessageDescriber( describeParams );
-        this.serverStreamDescriber = new BoltMessageDescriber( describeParams );
+        this.clientStreamDescriber = new BoltMessageDescriber();
+        this.serverStreamDescriber = new BoltMessageDescriber();
         this.clientStream = new Dechunker( clientStreamDescriber, () -> {} );
         this.serverStream = new Dechunker( serverStreamDescriber, () -> {} );
     }

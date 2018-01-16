@@ -1,12 +1,8 @@
 package org.neo4j.tools.boltalyzer.bolt1;
 
 import org.neo4j.bolt.v1.messaging.BoltIOException;
-import org.neo4j.bolt.v1.messaging.MessageBoundaryHook;
 import org.neo4j.bolt.v1.messaging.MessageHandler;
-import org.neo4j.bolt.v1.messaging.Neo4jPack;
-import org.neo4j.bolt.v1.messaging.message.Message;
 import org.neo4j.bolt.v1.packstream.PackStream;
-import org.neo4j.bolt.v1.runtime.spi.Record;
 import org.neo4j.kernel.api.exceptions.Status;
 
 import java.io.IOException;
@@ -21,22 +17,6 @@ public class MessageFormat {
     public int version()
     {
         return VERSION;
-    }
-
-    public interface MessageTypes
-    {
-        byte MSG_INIT = 0x01;
-        byte MSG_ACK_FAILURE = 0x0E;
-        byte MSG_RESET = 0x0F;
-
-        byte MSG_RUN = 0x10;
-        byte MSG_DISCARD_ALL = 0x2F;
-        byte MSG_PULL_ALL = 0x3F;
-
-        byte MSG_RECORD = 0x71;
-        byte MSG_SUCCESS = 0x70;
-        byte MSG_IGNORED = 0x7E;
-        byte MSG_FAILURE = 0x7F;
     }
 
     static String messageTypeName( int type )
@@ -156,7 +136,7 @@ public class MessageFormat {
                     (String) map.get( "message" ) :
                     "<No message supplied>";
 
-            output.handleFailureMessage( codeFromString( codeStr ), msg );
+            output.handleFailureMessage(parseStatus(codeStr), msg );
         }
 
         private <E extends Exception> void unpackIgnoredMessage( MessageHandler<E> output )
@@ -204,5 +184,15 @@ public class MessageFormat {
             output.handleInitMessage( clientName, credentials );
         }
 
+    }
+
+    private static Status parseStatus(String codeStr) {
+        try {
+            return codeFromString(codeStr);
+        } catch(IllegalArgumentException e)
+        {
+            System.err.println("Warn: Unrecognized status `" + codeStr + "`, using `Status.General.UnknownError`");
+            return Status.General.UnknownError;
+        }
     }
 }

@@ -35,6 +35,12 @@ More details here: https://danielmiessler.com/study/tcpdump/
 ### 2. Give the dump to boltalyzer
 
     boltalyzer my-network-dump.pcap
+    
+## Examples
+
+### Replay a dump file
+
+    boltalyzer --mode REPLAY --target bolt://neo4j:neo4j@localhost:7687 my-network-dump.pcap
 
 ## License
 
