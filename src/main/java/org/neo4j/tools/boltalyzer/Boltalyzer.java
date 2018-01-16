@@ -57,34 +57,44 @@ public class Boltalyzer
 {
     public static void main(String ... argv) throws Exception
     {
-        if ( argv.length == 0 || argv[0].equals( "-h" ) || argv[0].equals( "--help" ) )
+        Args args = Args.parse( argv );
+        if ( argv.length == 0 || argv[0].equals( "-h" ) || argv[0].equals( "--help" ) || args.orphans().size() != 2 )
         {
             System.out.println(
-                    "USAGE\n" +
-                    "  boltalyzer [options] <PCAP_FILE>\n" +
+                    "Usage: boltalyzer [--timemode <mode>] [--timeunit <unit>]\n" +
+                    "                  [--serverport <port>] [--session <session id>]\n" +
+                    "                  [--skip <n messages>]\n" +
+                    "                  <command> <TCPDUMP_FILE>\n" +
                     "\n" +
-                    "OPTIONS\n" +
+                    "Commands:\n" +
+                    "\n" +
+                    "  boltalyzer [options] log <TCPDUMP_FILE>\n" +
+                    "\n" +
+                    "      Output a play-by-play of the Bolt traffic in TCPDUMP_FILE.\n" +
+                    "\n" +
+                    "  boltalyzer [options] replay <TCPDUMP_FILE> --target bolt://neo4j:neo4j@localhost:7687\n" +
+                    "\n" +
+                    "      Replay the traffic in TCPDUMP_FILE against the specified target.\n" +
+                    "\n" +
+                    "  boltalyzer [options] export <TCPDUMP_FILE> [--target path/to/export/to]\n" +
+                    "\n" +
+                    "      Write each query and its parameters to a dedicated JSON file,\n" +
+                    "      prefixed by the time it was executed\n" +
+                    "\n" +
+                    "Options\n" +
                     "  --timemode [epoch | global-incremental | session-delta | iso8601]  (default: session-delta)\n" +
                     "  --timeunit [us | ms]  (default: us)\n" +
                     "  --serverport <port>  (default: 7687)\n" +
                     "  --session [<n> | all]  \n" +
                     "      Filter which sessions to show, session id is incrementally determined in order of sessions appearing in the data dump.  (default: all)\n" +
-                    "  --mode [LOG | QUERYDUMP | REPLAY] (default: LOG)\n" +
-                    "      LOG: Output a play-by-play log of messages sent\n" +
-                    "      QUERYDUMP: Write each query executed to a JSON file to '--dir'\n" +
-                    "      REPLAY: Replay the dump against `--target`\n" +
-                    "  --dir <path/to/query/dump/dir> (default: dump)\n" +
-                    "      Queries are dumped to this directory if mode is QUERYDUMP\n" +
-                    "  --target <bolt-uri>\n" +
-                    "      Bolt URL used when in REPLAY mode.\n" +
-                    "  --skip <n>  Skip n packets before starting output    (default: 0)\n"
+                    "  --skip <n>  Skip n packets before starting output    (default: 0)\n" +
+                    "  -h  Print this message\n" +
+                    "\n"
             );
             System.exit( 0 );
         }
 
-        Args args = Args.parse( argv );
-
-        try ( FileInputStream pcap = new FileInputStream( args.orphans().get( 0 ) ) )
+        try (FileInputStream pcap = new FileInputStream(args.orphans().get(1)) )
         {
             // Implementation note: since this is in a sideline tool, I'm using it to play a bit.
             // The approach here uses maps instead of classes (a la http://confreaks.tv/videos/railsconf2012-keynote-simplicity-matters )
@@ -95,7 +105,7 @@ public class Boltalyzer
             // functions acting on maps. This should put us in a situation where we can construct different pipelines from a common set of
             // pipeline functions.
 
-            try(ClosableConsumer<Dict> mode = modeOperation(args)) {
+            try(ClosableConsumer<Dict> mode = command(args)) {
                 new PCAPParser()
 
                         // So, parse out a stream of packets from the pcap file
@@ -125,16 +135,16 @@ public class Boltalyzer
         }
     }
 
-    private static ClosableConsumer<Dict> modeOperation(Args args) throws IOException {
-        String mode = args.get("mode", "log");
-        if(mode.equalsIgnoreCase("querydump")) {
+    private static ClosableConsumer<Dict> command(Args args) throws IOException {
+        String command = args.orphans().get(0);
+        if(command.equalsIgnoreCase("querydump")) {
             return queryDumper(args.get("dir", "dump"));
         }
-        if(mode.equalsIgnoreCase("log")) {
+        if(command.equalsIgnoreCase("log")) {
             Function<Dict, String> describe = describer();
             return (p) -> System.out.println(describe.apply(p));
         }
-        if(mode.equalsIgnoreCase("replay")) {
+        if(command.equalsIgnoreCase("replay")) {
             if(!args.has("target")) {
                 System.err.println("Must specify --target to replay; eg. '--target bolt://neo4j:neo4j@localhost:7687'");
                 System.exit(1);
@@ -142,7 +152,9 @@ public class Boltalyzer
             return replay(args.get("target"));
         }
 
-        throw new RuntimeException("Unknown mode: " + mode);
+        System.err.println("Unknown command: " + command);
+        System.exit(1);
+        return null;
     }
 
     private static Function<Dict, String> describer() {

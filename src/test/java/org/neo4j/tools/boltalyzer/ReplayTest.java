@@ -23,7 +23,7 @@ public class ReplayTest
 
         // When
         Boltalyzer.main(
-                "--mode", "replay",
+                "replay",
                 "--target", neo4j.boltURI().toASCIIString(),
                 file);
 
