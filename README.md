@@ -20,7 +20,7 @@ This tool does what query logging does, and adds:
     
 ## Use
 
-### 1. Take a tcp dump
+### 1. Take a tcpdump
 
 The network traffic needs to be unencrypted at the point you take the dump.
 The recommended approach is to terminate TLS via nginx, haproxy or some such on the database machine, and then perform the tcpdump on the localhost traffic.
@@ -32,15 +32,37 @@ Use `tcpdump -D` to see available options for `-i`.
 
 More details here: https://danielmiessler.com/study/tcpdump/
     
-### 2. Give the dump to boltalyzer
+### 2. Analyze with boltalyzer
 
-    boltalyzer my-network-dump.pcap
+    $ boltalyzer -h
+    Usage: boltalyzer [--timemode <mode>] [--timeunit <unit>]
+                      [--serverport <port>] [--session <session id>]
+                      [--skip <n messages>]
+                      <command> <TCPDUMP_FILE>
     
-## Examples
-
-### Replay a dump file
-
-    boltalyzer --mode REPLAY --target bolt://neo4j:neo4j@localhost:7687 my-network-dump.pcap
+    Commands:
+    
+      boltalyzer [options] log <TCPDUMP_FILE>
+    
+          Output a play-by-play of the Bolt traffic in TCPDUMP_FILE.
+    
+      boltalyzer [options] replay <TCPDUMP_FILE> --target bolt://neo4j:neo4j@localhost:7687
+    
+          Replay the traffic in TCPDUMP_FILE against the specified target.
+    
+      boltalyzer [options] export <TCPDUMP_FILE> [--target path/to/export/to]
+    
+          Write each query and its parameters to a dedicated JSON file,
+          prefixed by the time it was executed
+    
+    Options
+      --timemode [epoch | global-incremental | session-delta | iso8601]  (default: session-delta)
+      --timeunit [us | ms]  (default: us)
+      --serverport <port>  (default: 7687)
+      --session [<n> | all]  
+          Filter which sessions to show, session id is incrementally determined in order of sessions appearing in the data dump.  (default: all)
+      --skip <n>  Skip n packets before starting output    (default: 0)
+      -h  Print this message
 
 ## License
 
