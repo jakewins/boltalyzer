@@ -74,7 +74,7 @@ public class Boltalyzer
                     "\n" +
                     "  boltalyzer [options] replay <TCPDUMP_FILE> --target bolt://neo4j:neo4j@localhost:7687\n" +
                     "\n" +
-                    "      Replay the traffic in TCPDUMP_FILE against the specified target.\n" +
+                    "      Replay the queries in TCPDUMP_FILE against the specified target.\n" +
                     "\n" +
                     "  boltalyzer [options] export <TCPDUMP_FILE> [--target path/to/export/to]\n" +
                     "\n" +

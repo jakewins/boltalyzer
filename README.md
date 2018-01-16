@@ -49,7 +49,7 @@ More details here: https://danielmiessler.com/study/tcpdump/
     
       boltalyzer [options] replay <TCPDUMP_FILE> --target bolt://neo4j:neo4j@localhost:7687
     
-          Replay the traffic in TCPDUMP_FILE against the specified target.
+          Replay the queries in TCPDUMP_FILE against the specified target.
     
       boltalyzer [options] export <TCPDUMP_FILE> [--target path/to/export/to]
     
