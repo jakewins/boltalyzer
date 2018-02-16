@@ -22,12 +22,15 @@ package org.neo4j.tools.boltalyzer;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import org.neo4j.tools.boltalyzer.bolt1.Dechunker;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
+
+import org.neo4j.tools.boltalyzer.bolt1.Dechunker;
+
+import static org.neo4j.tools.boltalyzer.Dict.dict;
 
 /**
  * Stateful object tracking an ongoing session, able to decode transport transmissions as they arrive and describe them in a helpful way.
@@ -63,7 +66,7 @@ public class AnalyzedSession
     public List<Dict> describeServerPayload( ByteBuffer payload ) throws IOException
     {
         ByteBuf data = Unpooled.wrappedBuffer( payload );
-        String out = " <EMPTY>";
+        LinkedList<Dict> out = new LinkedList<>();
 
         // TODO: Something more sophisticated than this
         if(serverHandshakeRemaining > 0 && data.readableBytes() > 0)
@@ -71,38 +74,30 @@ public class AnalyzedSession
             int toRead = Math.min( data.readableBytes(), serverHandshakeRemaining );
             serverHandshakeRemaining -= toRead;
             data.skipBytes( toRead );
-            out = " <HANDSHAKE RESPONSE>";
-        }
-
-        if( data.readableBytes() == 0 )
-        {
-            return Collections.emptyList();
+            out.add( dict( Fields.Message.type, "<HANDSHAKE RESPONSE>" ) );
         }
 
         serverStream.handle( data );
-        return serverStreamDescriber.flushDescription();
+        out.addAll(serverStreamDescriber.flushDescription());
+        return out;
     }
 
     public List<Dict> describeClientPayload(ByteBuffer payload ) throws IOException
     {
         ByteBuf data = Unpooled.wrappedBuffer( payload );
-        String out = " <EMPTY>";
+        LinkedList<Dict> out = new LinkedList<>();
 
         if(clientHandshakeRemaining > 0 && data.readableBytes() > 0)
         {
             int toRead = Math.min( data.readableBytes(), clientHandshakeRemaining );
             clientHandshakeRemaining -= toRead;
             data.skipBytes( toRead );
-            out = " <HANDSHAKE>";
-        }
-
-        if( data.readableBytes() == 0 )
-        {
-            return Collections.emptyList();
+            out.add( dict( Fields.Message.type, "<HANDSHAKE>" ) );
         }
 
         clientStream.handle( data );
-        return clientStreamDescriber.flushDescription();
+        out.addAll(clientStreamDescriber.flushDescription());
+        return out;
     }
 
     public long id()

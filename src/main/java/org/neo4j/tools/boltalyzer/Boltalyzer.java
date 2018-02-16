@@ -20,13 +20,6 @@
 package org.neo4j.tools.boltalyzer;
 
 
-import org.neo4j.driver.v1.Driver;
-import org.neo4j.driver.v1.GraphDatabase;
-import org.neo4j.driver.v1.Session;
-import org.neo4j.helpers.Args;
-import org.neo4j.helpers.collection.Pair;
-import org.neo4j.tools.boltalyzer.serialize.Bolt2JSON;
-
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -44,12 +37,26 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import org.neo4j.driver.v1.Driver;
+import org.neo4j.driver.v1.GraphDatabase;
+import org.neo4j.driver.v1.Session;
+import org.neo4j.helpers.Args;
+import org.neo4j.helpers.collection.Pair;
+import org.neo4j.tools.boltalyzer.serialize.Bolt2JSON;
+
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static java.util.concurrent.Executors.newSingleThreadExecutor;
 import static org.neo4j.helpers.collection.Pair.pair;
 import static org.neo4j.tools.boltalyzer.Dict.dict;
-import static org.neo4j.tools.boltalyzer.Fields.*;
+import static org.neo4j.tools.boltalyzer.Fields.Message;
+import static org.neo4j.tools.boltalyzer.Fields.connectionKey;
+import static org.neo4j.tools.boltalyzer.Fields.description;
+import static org.neo4j.tools.boltalyzer.Fields.dstPort;
+import static org.neo4j.tools.boltalyzer.Fields.logicalSource;
+import static org.neo4j.tools.boltalyzer.Fields.payload;
+import static org.neo4j.tools.boltalyzer.Fields.session;
+import static org.neo4j.tools.boltalyzer.Fields.timeString;
 import static org.neo4j.tools.boltalyzer.TimeMapper.modeForName;
 import static org.neo4j.tools.boltalyzer.TimeMapper.unitForName;
 
@@ -63,7 +70,7 @@ public class Boltalyzer
             System.out.println(
                     "Usage: boltalyzer [--timemode <mode>] [--timeunit <unit>]\n" +
                     "                  [--serverport <port>] [--session <session id>]\n" +
-                    "                  [--skip <n messages>]\n" +
+                    "                  [--skip <n messages>] [--exclude-empty-packets]\n" +
                     "                  <command> <TCPDUMP_FILE>\n" +
                     "\n" +
                     "Commands:\n" +
@@ -128,6 +135,9 @@ public class Boltalyzer
 
                         // Filter out to only look sessions the user cares about
                         .filter(sessionFilter(args.get("session", "all")))
+
+                        // Filter out to only look sessions the user cares about
+                        .filter(emptyPacketFilter(args.get("exclude-empty-packets", "false", "true")))
 
                         // Do the thing the user asked for
                         .forEach(mode);
@@ -290,6 +300,14 @@ public class Boltalyzer
             long sessionId = Long.parseLong( name );
             return (p) -> p.get( session ).id() == sessionId;
         }
+    }
+
+    private static Predicate<Dict> emptyPacketFilter( String filterEmptyPackets )
+    {
+        if(!filterEmptyPackets.equalsIgnoreCase( "false" ) ) {
+            return (p) -> p.get(description).size() > 0;
+        }
+        return (p) -> true;
     }
 
     public static class SessionRepository
