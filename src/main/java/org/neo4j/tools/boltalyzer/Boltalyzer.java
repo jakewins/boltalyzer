@@ -52,10 +52,11 @@ import static org.neo4j.tools.boltalyzer.Dict.dict;
 import static org.neo4j.tools.boltalyzer.Fields.Message;
 import static org.neo4j.tools.boltalyzer.Fields.connectionKey;
 import static org.neo4j.tools.boltalyzer.Fields.description;
-import static org.neo4j.tools.boltalyzer.Fields.dstPort;
 import static org.neo4j.tools.boltalyzer.Fields.logicalSource;
 import static org.neo4j.tools.boltalyzer.Fields.payload;
 import static org.neo4j.tools.boltalyzer.Fields.session;
+import static org.neo4j.tools.boltalyzer.Fields.src;
+import static org.neo4j.tools.boltalyzer.Fields.srcPort;
 import static org.neo4j.tools.boltalyzer.Fields.timeString;
 import static org.neo4j.tools.boltalyzer.TimeMapper.modeForName;
 import static org.neo4j.tools.boltalyzer.TimeMapper.unitForName;
@@ -69,8 +70,8 @@ public class Boltalyzer
         {
             System.out.println(
                     "Usage: boltalyzer [--timemode <mode>] [--timeunit <unit>]\n" +
-                    "                  [--serverport <port>] [--session <session id>]\n" +
-                    "                  [--skip <n messages>] [--exclude-empty-packets]\n" +
+                    "                  [--session <session id>] [--skip <n messages>]\n" +
+                    "                  [--exclude-empty-packets]\n" +
                     "                  <command> <TCPDUMP_FILE>\n" +
                     "\n" +
                     "Commands:\n" +
@@ -91,7 +92,6 @@ public class Boltalyzer
                     "Options\n" +
                     "  --timemode [epoch | global-incremental | session-delta | iso8601]  (default: session-delta)\n" +
                     "  --timeunit [us | ms]  (default: us)\n" +
-                    "  --serverport <port>  (default: 7687)\n" +
                     "  --session [<n> | all]  \n" +
                     "      Filter which sessions to show, session id is incrementally determined in order of sessions appearing in the data dump.  (default: all)\n" +
                     "  --skip <n>  Skip n packets before starting output    (default: 0)\n" +
@@ -126,8 +126,7 @@ public class Boltalyzer
 
                         // Decorate each packet with semantic information about what the actual bolt messages were,
                         // what the logical session and logical source of the message was
-                        .map(new AddBoltDescription(
-                                args.getNumber("serverport", 7687).intValue()))
+                        .map(new AddBoltDescription())
 
                         // Now we can skip things (currently the step above needs to see all packets to maintain message framing alignment, so
                         // we can't skip until after the step above)
@@ -331,51 +330,25 @@ public class Boltalyzer
     /** Adds a description of the messages in each packet, plus semantic info about who is sending it and attaches a session object to it */
     public static class AddBoltDescription implements Function<Dict, Dict>
     {
-        private final SessionRepository sessions;
-        private final int serverPort;
-
-        public AddBoltDescription( int serverPort )
-        {
-            this.serverPort = serverPort;
-            this.sessions = new SessionRepository();
-        }
+        private final SessionRepository sessions = new SessionRepository();
 
         @Override
         public Dict apply( Dict packet )
         {
+            String origin = packet.get( src ).toString() + ":" + packet.get( srcPort );
             AnalyzedSession sess = sessions.session( packet.get( connectionKey ) );
+
             packet.put( session, sess );
-            if ( packet.get( dstPort ) == serverPort )
-            {
-                packet.put( description, describeClientPayload( packet.get( payload ), sess ) );
-                packet.put( logicalSource, "Client" );
-            }
-            else
-            {
-                packet.put( description, describeServerPayload( packet.get( payload ), sess ) );
-                packet.put( logicalSource, "Server" );
-            }
+            packet.put( description, describe( origin,  packet.get( payload ), sess ) );
+            packet.put( logicalSource, sess.logicalSource( origin ) );
+
             return packet;
         }
 
-        private List<Dict> describeClientPayload(ByteBuffer packet, AnalyzedSession sess ) {
+        private List<Dict> describe(String origin, ByteBuffer packet, AnalyzedSession sess ) {
             try
             {
-                return sess.describeClientPayload( packet );
-            }
-            catch ( IOException e )
-            {
-                return singletonList(
-                        dict(
-                                Message.type, "<UNPARSEABLE>",
-                                Message.message, String.format("(%s) %s", e.getMessage(), bytesToHex( packet ))));
-            }
-        }
-
-        private List<Dict> describeServerPayload( ByteBuffer packet, AnalyzedSession sess ) {
-            try
-            {
-                return sess.describeServerPayload( packet );
+                return sess.describe( origin, packet );
             }
             catch ( IOException e )
             {

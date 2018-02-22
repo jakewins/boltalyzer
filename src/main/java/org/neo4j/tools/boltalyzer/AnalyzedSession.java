@@ -19,12 +19,13 @@
  */
 package org.neo4j.tools.boltalyzer;
 
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -48,6 +49,18 @@ public class AnalyzedSession
     private int clientHandshakeRemaining = 16;
     private int serverHandshakeRemaining = 4;
 
+    enum State
+    {
+        DETECTING,
+        WSS,
+        TCP,
+        UNPARSEABLE
+    }
+
+    private State state = State.DETECTING;
+
+    private String clientOrigin;
+
     public AnalyzedSession(String name, long id)
     {
         this.name = name;
@@ -63,7 +76,93 @@ public class AnalyzedSession
         return name;
     }
 
-    public List<Dict> describeServerPayload( ByteBuffer payload ) throws IOException
+    /**
+     * @param origin Can be any string, as long as it is stable and unique for a given message origin.
+     *               For instance, the source IP and port, combined into a string.
+     * @param packet Data!
+     * @return a list of bolt messages contained in the packet
+     * @throws IOException
+     */
+    public List<Dict> describe( String origin, ByteBuffer packet ) throws IOException
+    {
+        switch(state)
+        {
+        case DETECTING:
+            if( packet.remaining() == 0) {
+                return Collections.emptyList();
+            }
+            if( contains( packet, new byte[]{'G','E', 'T'} ))
+            {
+                state = State.WSS;
+                clientOrigin = origin;
+                return describe( origin, packet );
+            }
+
+            if( contains( packet, ByteBuffer.allocate(4).order( ByteOrder.BIG_ENDIAN ).putInt( 0x6060B017 ).array() ))
+            {
+                state = State.TCP;
+                clientOrigin = origin;
+                return describe( origin, packet );
+            }
+
+            state = State.UNPARSEABLE;
+            return describe( origin, packet );
+        case TCP:
+            if(origin.equals( clientOrigin ))
+            {
+                return describeClientPayload( packet );
+            }
+            return describeServerPayload( packet );
+        case WSS:
+            packet.position( packet.position() + packet.remaining() );
+            return Collections.singletonList( dict( Fields.Message.type, "<WEBSOCKET MESSAGE>" ) );
+        case UNPARSEABLE:
+            packet.position( packet.position() + packet.remaining() );
+            return Collections.singletonList( dict( Fields.Message.type, "<UNPARSEABLE>" ) );
+        default:
+            throw new IOException( "Unknown state " + state.name() );
+        }
+    }
+
+    /**
+     * After calling {@link #describe(String, ByteBuffer)} with a given origin string,
+     * you can pass that origin string to this method to determine if that origin is the client or the
+     * server.
+     */
+    public String logicalSource( String origin )
+    {
+        if(clientOrigin == null) {
+            return "Unknown";
+        }
+        if(clientOrigin.equals( origin )) {
+            return "Client";
+        }
+        return "Server";
+    }
+
+    private boolean contains( ByteBuffer packet, byte[] needle )
+    {
+        int needleIndex = 0;
+        for ( int i = 0; i < packet.remaining(); i++ )
+        {
+            byte b = packet.get( packet.position() + i );
+            if(b == needle[needleIndex])
+            {
+                needleIndex++;
+                if(needleIndex == needle.length)
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                needleIndex = 0;
+            }
+        }
+        return false;
+    }
+
+    private List<Dict> describeServerPayload( ByteBuffer payload ) throws IOException
     {
         ByteBuf data = Unpooled.wrappedBuffer( payload );
         LinkedList<Dict> out = new LinkedList<>();
@@ -82,7 +181,7 @@ public class AnalyzedSession
         return out;
     }
 
-    public List<Dict> describeClientPayload(ByteBuffer payload ) throws IOException
+    private List<Dict> describeClientPayload( ByteBuffer payload ) throws IOException
     {
         ByteBuf data = Unpooled.wrappedBuffer( payload );
         LinkedList<Dict> out = new LinkedList<>();
@@ -96,7 +195,10 @@ public class AnalyzedSession
         }
 
         clientStream.handle( data );
-        out.addAll(clientStreamDescriber.flushDescription());
+
+        List<Dict> c = clientStreamDescriber.flushDescription();
+        out.addAll( c );
+
         return out;
     }
 
