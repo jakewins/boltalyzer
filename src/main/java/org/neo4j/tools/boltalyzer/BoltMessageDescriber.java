@@ -19,19 +19,20 @@
  */
 package org.neo4j.tools.boltalyzer;
 
-import org.neo4j.bolt.v1.messaging.MessageHandler;
-import org.neo4j.bolt.v1.runtime.spi.Record;
-import org.neo4j.kernel.api.exceptions.Status;
-
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
+import org.neo4j.bolt.v1.messaging.MessageHandler;
+import org.neo4j.bolt.v1.runtime.spi.Record;
+import org.neo4j.kernel.api.exceptions.Status;
+
 import static org.neo4j.tools.boltalyzer.Dict.dict;
 
 public class BoltMessageDescriber implements MessageHandler<RuntimeException>
 {
+    public static final String MSG_RECORD = "RECORD";
     private final List<Dict> messages = new ArrayList<>();
 
     @Override
@@ -70,7 +71,7 @@ public class BoltMessageDescriber implements MessageHandler<RuntimeException>
     @Override
     public void handleRecordMessage( Record item ) throws RuntimeException
     {
-        messages.add( dict( Fields.Message.type, "RECORD",
+        messages.add( dict( Fields.Message.type, MSG_RECORD,
                 Fields.Message.fields, item.fields() ));
     }
 

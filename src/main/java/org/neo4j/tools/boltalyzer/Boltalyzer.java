@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,7 +52,7 @@ import static org.neo4j.helpers.collection.Pair.pair;
 import static org.neo4j.tools.boltalyzer.Dict.dict;
 import static org.neo4j.tools.boltalyzer.Fields.Message;
 import static org.neo4j.tools.boltalyzer.Fields.connectionKey;
-import static org.neo4j.tools.boltalyzer.Fields.description;
+import static org.neo4j.tools.boltalyzer.Fields.messages;
 import static org.neo4j.tools.boltalyzer.Fields.logicalSource;
 import static org.neo4j.tools.boltalyzer.Fields.payload;
 import static org.neo4j.tools.boltalyzer.Fields.session;
@@ -76,15 +77,17 @@ public class Boltalyzer
                     "\n" +
                     "Commands:\n" +
                     "\n" +
-                    "  boltalyzer [options] log <TCPDUMP_FILE>\n" +
+                    "  boltalyzer log <TCPDUMP_FILE> [options] [--truncate-results]\n" +
                     "\n" +
                     "      Output a play-by-play of the Bolt traffic in TCPDUMP_FILE.\n" +
                     "\n" +
-                    "  boltalyzer [options] replay <TCPDUMP_FILE> --target bolt://neo4j:neo4j@localhost:7687\n" +
+                    "      --truncate-results  Don't print full query results\n" +
+                    "\n" +
+                    "  boltalyzer replay <TCPDUMP_FILE> [options] --target bolt://neo4j:neo4j@localhost:7687\n" +
                     "\n" +
                     "      Replay the queries in TCPDUMP_FILE against the specified target.\n" +
                     "\n" +
-                    "  boltalyzer [options] export <TCPDUMP_FILE> [--target path/to/export/to]\n" +
+                    "  boltalyzer export <TCPDUMP_FILE> [options] [--target path/to/export/to]\n" +
                     "\n" +
                     "      Write each query and its parameters to a dedicated JSON file,\n" +
                     "      prefixed by the time it was executed\n" +
@@ -146,11 +149,16 @@ public class Boltalyzer
 
     private static ClosableConsumer<Dict> command(Args args) throws IOException {
         String command = args.orphans().get(0);
-        if(command.equalsIgnoreCase("querydump")) {
+        if(command.equalsIgnoreCase("export")) {
             return queryDumper(args.get("dir", "dump"));
         }
         if(command.equalsIgnoreCase("log")) {
             Function<Dict, String> describe = describer();
+
+            if(args.has("truncate-results")) {
+                return (p) -> System.out.println(withTruncatedResults(describe).apply(p));
+            }
+
             return (p) -> System.out.println(describe.apply(p));
         }
         if(command.equalsIgnoreCase("replay")) {
@@ -168,7 +176,7 @@ public class Boltalyzer
 
     private static Function<Dict, String> describer() {
         return (p) -> {
-            String messages = p.get(description, emptyList()).stream().map(m -> {
+            String messages = p.get( Fields.messages, emptyList()).stream().map(m -> {
                 try {
                     return Bolt2JSON.mapper().writeValueAsString(m); // todo
                 } catch (IOException e) {
@@ -184,6 +192,36 @@ public class Boltalyzer
         };
     }
 
+    private static Function<Dict, String> withTruncatedResults(Function<Dict, String> delegate) {
+        return (p) -> {
+            // Filter out RECORD messages
+            List<Dict> original = p.get( Fields.messages, emptyList() );
+            List<Dict> truncated = new ArrayList<>( original.size() );
+            long skipped = 0;
+            for(Dict m : original) {
+                boolean isRecord = m.get( Message.type ).equals( BoltMessageDescriber.MSG_RECORD );
+                if ( skipped > 0 ) {
+                    if( isRecord ) {
+                        skipped++;
+                    } else {
+                        truncated.add( Dict.dict( Message.type, BoltMessageDescriber.MSG_RECORD,
+                                Message.fields, new Object[]{String.format("<skipped %d records>", skipped )}) );
+                        skipped = 0;
+                    }
+                } else {
+                    if(isRecord) {
+                        skipped = 1;
+                    } else {
+                        truncated.add( m );
+                    }
+                }
+            }
+            p.put( Fields.messages, truncated );
+
+            return delegate.apply( p );
+        };
+    }
+
     private static ClosableConsumer<Dict> queryDumper(String path) throws IOException {
         if(path.equals("")) {
             return d -> {};
@@ -193,7 +231,7 @@ public class Boltalyzer
         Path out = Paths.get(path);
         Files.createDirectories(out);
         return p -> {
-            p.get(Fields.description, emptyList())
+            p.get(Fields.messages, emptyList())
                     .forEach(m -> {
                         if(m.get(Message.type).equals("RUN")) {
                             String session = p.get(Fields.session).name();
@@ -249,7 +287,7 @@ public class Boltalyzer
                 {
                     streamStartTimeUs.set(p.get(Fields.timestamp));
                 }
-                p.get(Fields.description, emptyList())
+                p.get(Fields.messages, emptyList())
                         .forEach(m -> {
                             if(m.get(Message.type).equals("RUN")) {
                                 String sessionName = p.get(Fields.session).name();
@@ -304,7 +342,7 @@ public class Boltalyzer
     private static Predicate<Dict> emptyPacketFilter( String filterEmptyPackets )
     {
         if(!filterEmptyPackets.equalsIgnoreCase( "false" ) ) {
-            return (p) -> p.get(description).size() > 0;
+            return (p) -> p.get( messages ).size() > 0;
         }
         return (p) -> true;
     }
@@ -339,7 +377,7 @@ public class Boltalyzer
             AnalyzedSession sess = sessions.session( packet.get( connectionKey ) );
 
             packet.put( session, sess );
-            packet.put( description, describe( origin,  packet.get( payload ), sess ) );
+            packet.put( messages, describe( origin,  packet.get( payload ), sess ) );
             packet.put( logicalSource, sess.logicalSource( origin ) );
 
             return packet;

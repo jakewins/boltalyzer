@@ -38,7 +38,7 @@ public class Fields
     public static final Field<Integer> dstPort = field( "dstPort" );
     public static final Field<ByteBuffer> payload = field( "raw" );
     public static final Field<String> connectionKey = field( "connectionKey" );
-    public static final Field<List<Dict>> description = field( "description" );
+    public static final Field<List<Dict>> messages = field( "description" );
     public static final Field<AnalyzedSession> session = field( "session" );
     public static final Field<String> logicalSource = field( "logicalSource" );
 
