@@ -79,11 +79,14 @@ public class Boltalyzer
                     "\n" +
                     "Commands:\n" +
                     "\n" +
-                    "  boltalyzer log <TCPDUMP_FILE> [options] [--truncate-results]\n" +
+                    "  boltalyzer log <TCPDUMP_FILE> [options] [--no-results]\n" +
+                    "                                [--no-params] [--truncate-queries <n>]\n" +
                     "\n" +
                     "      Output a play-by-play of the Bolt traffic in TCPDUMP_FILE.\n" +
                     "\n" +
-                    "      --truncate-results  Don't print full query results\n" +
+                    "      --no-results  Don't print query results\n" +
+                    "      --no-params  Don't print parameters\n" +
+                    "      --truncate-queries <n> Truncate queries at <n> characters\n" +
                     "\n" +
                     "  boltalyzer replay <TCPDUMP_FILE> [options] --target bolt://neo4j:neo4j@localhost:7687\n" +
                     "\n" +
@@ -157,11 +160,20 @@ public class Boltalyzer
         if(command.equalsIgnoreCase("log")) {
             Function<Dict, String> describe = describer();
 
-            if(args.has("truncate-results")) {
-                return (p) -> System.out.println(withTruncatedResults(describe).apply(p));
+            if(args.has("no-results")) {
+                describe = stripResults(describe);
             }
 
-            return (p) -> System.out.println(describe.apply(p));
+            if(args.has("no-params")) {
+                describe = stripParameters(describe);
+            }
+
+            if(args.has("truncate-queries")) {
+                describe = truncateQueries(describe, args.getNumber( "truncate-queries", 80 ).intValue() );
+            }
+
+            Function<Dict, String> finalDescribe = describe;
+            return (p) -> System.out.println(finalDescribe.apply(p));
         }
         if(command.equalsIgnoreCase("replay")) {
             if(!args.has("target")) {
@@ -194,7 +206,7 @@ public class Boltalyzer
         };
     }
 
-    private static Function<Dict, String> withTruncatedResults(Function<Dict, String> delegate) {
+    private static Function<Dict, String> stripResults(Function<Dict, String> delegate) {
         return (p) -> {
             // Filter out RECORD messages
             List<Dict> original = p.get( Fields.messages, emptyList() );
@@ -219,6 +231,35 @@ public class Boltalyzer
                 }
             }
             p.put( Fields.messages, truncated );
+
+            return delegate.apply( p );
+        };
+    }
+
+    private static Function<Dict, String> stripParameters(Function<Dict, String> delegate) {
+        return (p) -> {
+            p.get( Fields.messages, emptyList() ).forEach( m -> {
+                if( m.get( Message.type ).equals(BoltMessageDescriber.MSG_RUN ) ) {
+                    m.put( Message.params, null );
+                }
+            });
+
+            return delegate.apply( p );
+        };
+    }
+
+    private static Function<Dict, String> truncateQueries(Function<Dict, String> delegate, int maxChars) {
+        return (p) -> {
+            p.get( Fields.messages, emptyList() ).forEach( m -> {
+                if( m.get( Message.type ).equals(BoltMessageDescriber.MSG_RUN ) ) {
+                    String stmt = m.get( Message.statement );
+                    if( stmt.length() > maxChars) {
+                        String trunc = stmt.substring( 0, maxChars );
+                        String truncated = String.format( "%s.. (truncated from %d chars)", trunc, stmt.length() );
+                        m.put( Message.statement, truncated );
+                    }
+                }
+            });
 
             return delegate.apply( p );
         };

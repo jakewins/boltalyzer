@@ -33,13 +33,14 @@ import static org.neo4j.tools.boltalyzer.Dict.dict;
 public class BoltMessageDescriber implements MessageHandler<RuntimeException>
 {
     public static final String MSG_RECORD = "RECORD";
+    public static final String MSG_RUN = "RUN";
     private final List<Dict> messages = new ArrayList<>();
 
     @Override
     public void handleRunMessage( String statement, Map<String,Object> params ) throws RuntimeException
     {
         messages.add( dict(
-                Fields.Message.type, "RUN",
+                Fields.Message.type, MSG_RUN,
                 Fields.Message.statement, statement,
                 Fields.Message.params, params ));
     }
