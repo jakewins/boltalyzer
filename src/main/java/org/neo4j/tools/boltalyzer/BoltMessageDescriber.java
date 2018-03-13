@@ -41,7 +41,7 @@ public class BoltMessageDescriber implements MessageHandler<RuntimeException>
         messages.add( dict(
                 Fields.Message.type, "RUN",
                 Fields.Message.statement, statement,
-                Fields.Message.params, null ));
+                Fields.Message.params, params ));
     }
 
     @Override

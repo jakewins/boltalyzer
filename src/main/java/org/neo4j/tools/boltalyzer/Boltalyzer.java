@@ -19,9 +19,9 @@
  */
 package org.neo4j.tools.boltalyzer;
 
-
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -38,6 +38,8 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import org.neo4j.driver.v1.AuthToken;
+import org.neo4j.driver.v1.AuthTokens;
 import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.GraphDatabase;
 import org.neo4j.driver.v1.Session;
@@ -52,8 +54,8 @@ import static org.neo4j.helpers.collection.Pair.pair;
 import static org.neo4j.tools.boltalyzer.Dict.dict;
 import static org.neo4j.tools.boltalyzer.Fields.Message;
 import static org.neo4j.tools.boltalyzer.Fields.connectionKey;
-import static org.neo4j.tools.boltalyzer.Fields.messages;
 import static org.neo4j.tools.boltalyzer.Fields.logicalSource;
+import static org.neo4j.tools.boltalyzer.Fields.messages;
 import static org.neo4j.tools.boltalyzer.Fields.payload;
 import static org.neo4j.tools.boltalyzer.Fields.session;
 import static org.neo4j.tools.boltalyzer.Fields.src;
@@ -260,7 +262,17 @@ public class Boltalyzer
     {
         System.out.println("Replaying against " + connectionString);
 
-        Driver driver = GraphDatabase.driver(connectionString);
+        AuthToken token = AuthTokens.none();
+        URI uri = URI.create( connectionString );
+
+        String userInfo = uri.getUserInfo();
+        if(userInfo != null)
+        {
+            String[] usernamePassword = userInfo.split( ":" );
+            token = AuthTokens.basic( usernamePassword[0], usernamePassword[1] );
+        }
+
+        Driver driver = GraphDatabase.driver(connectionString, token);
         Function<String, Pair<Session, ExecutorService>> newSession = (s) -> pair(driver.session(), newSingleThreadExecutor());
         Map<String, Pair<Session, ExecutorService>> sessions = new HashMap<>();
 
