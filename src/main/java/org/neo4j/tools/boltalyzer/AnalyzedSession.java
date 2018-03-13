@@ -28,8 +28,10 @@ import java.nio.ByteOrder;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.Function;
 
 import org.neo4j.tools.boltalyzer.bolt1.Dechunker;
+import org.neo4j.tools.boltalyzer.ws.WebsocketDecoder;
 
 import static org.neo4j.tools.boltalyzer.Dict.dict;
 
@@ -45,6 +47,9 @@ public class AnalyzedSession
 
     private final Dechunker clientStream;
     private final Dechunker serverStream;
+
+    private Function<ByteBuffer, ByteBuffer> clientWebsocketDecoder;
+    private Function<ByteBuffer, ByteBuffer> serverWebsocketDecoder;
 
     private int clientHandshakeRemaining = 16;
     private int serverHandshakeRemaining = 4;
@@ -94,6 +99,8 @@ public class AnalyzedSession
             if( contains( packet, new byte[]{'G','E', 'T'} ))
             {
                 state = State.WSS;
+                clientWebsocketDecoder = new WebsocketDecoder();
+                serverWebsocketDecoder = new WebsocketDecoder();
                 clientOrigin = origin;
                 return describe( origin, packet );
             }
@@ -114,8 +121,11 @@ public class AnalyzedSession
             }
             return describeServerPayload( packet );
         case WSS:
-            packet.position( packet.position() + packet.remaining() );
-            return Collections.singletonList( dict( Fields.Message.type, "<WEBSOCKET MESSAGE>" ) );
+            if(origin.equals( clientOrigin ))
+            {
+                return describeClientPayload( clientWebsocketDecoder.apply( packet ) );
+            }
+            return describeServerPayload( serverWebsocketDecoder.apply( packet ) );
         case UNPARSEABLE:
             packet.position( packet.position() + packet.remaining() );
             return Collections.singletonList( dict( Fields.Message.type, "<UNPARSEABLE>" ) );

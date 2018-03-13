@@ -5,9 +5,11 @@ import java.nio.ByteBuffer;
 public class ByteWriter
 {
     private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
+
     public static String bytesToHex(byte[] bytes) {
         return bytesToHex( ByteBuffer.wrap( bytes ) );
     }
+
     public static String bytesToHex(ByteBuffer bytes) {
         char[] hexChars = new char[bytes.remaining() * 2];
         for ( int j = 0; j < bytes.remaining(); j++ ) {
@@ -16,5 +18,11 @@ public class ByteWriter
             hexChars[j * 2 + 1] = hexArray[v & 0x0F];
         }
         return new String(hexChars);
+    }
+
+    public static String pretty(byte[] bytes) {
+        String raw = bytesToHex( bytes );
+        raw = raw.replaceAll("(.{8})", "$1 ");
+        return raw.replaceAll("(.{144})", "$1\n");
     }
 }
