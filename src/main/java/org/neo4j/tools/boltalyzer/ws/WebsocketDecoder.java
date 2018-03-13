@@ -44,7 +44,7 @@ public class WebsocketDecoder implements Function<ByteBuffer,ByteBuffer>
                         break;
                     case 3:
                         if(b == 0x0A) {
-                            return FRAME;
+                            return FIRST_BYTE;
                         } else {
                             ctx.endHeaderBytesSeen = 0;
                         }
@@ -55,7 +55,8 @@ public class WebsocketDecoder implements Function<ByteBuffer,ByteBuffer>
             }
         },
 
-        FRAME {
+        FIRST_BYTE
+                {
             @Override
             public State handle( WebsocketDecoder ctx, ByteBuffer packet )
             {
@@ -65,39 +66,78 @@ public class WebsocketDecoder implements Function<ByteBuffer,ByteBuffer>
                 boolean fin = (chunk & 0b10000000) != 0;
                 int opcode = (chunk & 0b00001111);
 
+//                if(opcode != 2 && opcode != 0 && opcode != 4 && opcode != 9 && opcode != 10) {
+//                    throw new UnsupportedOperationException( "Boltalyzer can't handler websocket opcode: " + opcode );
+//                }
+
+                return SECOND_BYTE;
+            }
+        },
+
+        SECOND_BYTE
+        {
+            @Override
+            public State handle( WebsocketDecoder ctx, ByteBuffer packet )
+            {
+                int chunk;
+
                 chunk = packet.get() & 0xff;
-                boolean masked = (chunk & 0b10000000) != 0;
+                ctx.masked = (chunk & 0b10000000) != 0;
                 long payloadLen = (chunk & 0b01111111);
 
                 if(payloadLen == 126) {
-                    payloadLen = packet.getShort() & 0xffff;
+                    ctx.payloadLen = packet.getShort() & 0xffff;
                 } else if(payloadLen == 127 ) {
-                    payloadLen = packet.getLong();
+                    ctx.payloadLen = packet.getLong();
+                } else {
+                    ctx.payloadLen = payloadLen;
                 }
 
-                byte[] maskingKey = new byte[4];
-                if(masked) {
-                    packet.get(maskingKey);
-                }
-
-                if(!fin) {
-                    throw new UnsupportedOperationException( "Stream contains fragmented websocket frames, which is not yet supported by boltalyzer." );
-                }
-
-                if(payloadLen > Integer.MAX_VALUE) {
+                if(ctx.payloadLen > Integer.MAX_VALUE) {
                     throw new UnsupportedOperationException( "Stream contains websocket frames larger than 1sGB, which is not yet supported by boltalyzer :(" );
                 }
 
-                byte[] payload = new byte[(int)payloadLen];
+                if(ctx.masked) {
+                    return MASK;
+                }
+
+                return PAYLOAD;
+            }
+        },
+
+        MASK
+        {
+            @Override
+            public State handle( WebsocketDecoder ctx, ByteBuffer packet )
+            {
+                if(packet.remaining() < 4) {
+                    // Wait for more data
+                    return MASK;
+                }
+                if(ctx.masked) {
+                    packet.get(ctx.maskingKey);
+                }
+
+                return PAYLOAD;
+            }
+        },
+
+        PAYLOAD
+        {
+            @Override
+            public State handle( WebsocketDecoder ctx, ByteBuffer packet )
+            {
+                int toRead = Math.min( (int)ctx.payloadLen, packet.remaining() );
+                byte[] payload = new byte[toRead];
                 packet.get( payload );
 
                 // Unmask
-                if(masked) {
+                if(ctx.masked) {
                     int j;
                     for ( int i = 0; i < payload.length; i++ )
                     {
                         j = i % 4;
-                        payload[i] = (byte)(payload[i] ^ maskingKey[j]);
+                        payload[i] = (byte)(payload[i] ^ ctx.maskingKey[j]);
                     }
                 }
 
@@ -110,24 +150,46 @@ public class WebsocketDecoder implements Function<ByteBuffer,ByteBuffer>
                     throw new RuntimeException( e );
                 }
 
-                return FRAME;
+                if(toRead < ctx.payloadLen) {
+                    ctx.payloadLen -= toRead;
+                    return PAYLOAD;
+                }
+
+                return FIRST_BYTE;
             }
-        }
+        },
         ;
 
         public abstract State handle( WebsocketDecoder ctx, ByteBuffer packet );
     }
 
     private State state = State.UNINITIALIZED;
-    private ByteArrayOutputStream fragments = new ByteArrayOutputStream();
+    private byte[] savedPartial;
     private ByteArrayOutputStream outbound = new ByteArrayOutputStream();
     private int endHeaderBytesSeen = 0;
+    private long payloadLen = 0;
+    private boolean masked;
+    private byte[] maskingKey = new byte[4];
 
     @Override
     public ByteBuffer apply( ByteBuffer packet )
     {
+        if(savedPartial != null) {
+            ByteBuffer combinedPacket = ByteBuffer.allocate( savedPartial.length + packet.remaining() );
+            combinedPacket.put( savedPartial );
+            combinedPacket.put( packet );
+            combinedPacket.position( 0 );
+            packet = combinedPacket;
+            savedPartial = null;
+        }
         while(packet.remaining() > 0) {
+            int start = packet.position();
             state = state.handle( this, packet );
+            if(start == packet.position()) {
+                // Nothing read, need more data to make progress
+                savedPartial = new byte[packet.remaining()];
+                break;
+            }
         }
 
         ByteBuffer wrap = ByteBuffer.wrap( outbound.toByteArray() );
