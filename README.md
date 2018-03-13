@@ -37,21 +37,23 @@ More details here: https://danielmiessler.com/study/tcpdump/
 
     $ boltalyzer -h
     Usage: boltalyzer [--timemode <mode>] [--timeunit <unit>]
-                      [--serverport <port>] [--session <session id>]
-                      [--skip <n messages>]
+                      [--session <session id>] [--skip <n messages>]
+                      [--exclude-empty-packets]
                       <command> <TCPDUMP_FILE>
     
     Commands:
     
-      boltalyzer [options] log <TCPDUMP_FILE>
+      boltalyzer log <TCPDUMP_FILE> [options] [--truncate-results]
     
           Output a play-by-play of the Bolt traffic in TCPDUMP_FILE.
     
-      boltalyzer [options] replay <TCPDUMP_FILE> --target bolt://neo4j:neo4j@localhost:7687
+          --truncate-results  Don't print full query results
+    
+      boltalyzer replay <TCPDUMP_FILE> [options] --target bolt://neo4j:neo4j@localhost:7687
     
           Replay the queries in TCPDUMP_FILE against the specified target.
     
-      boltalyzer [options] export <TCPDUMP_FILE> [--target path/to/export/to]
+      boltalyzer export <TCPDUMP_FILE> [options] [--target path/to/export/to]
     
           Write each query and its parameters to a dedicated JSON file,
           prefixed by the time it was executed
@@ -59,7 +61,6 @@ More details here: https://danielmiessler.com/study/tcpdump/
     Options
       --timemode [epoch | global-incremental | session-delta | iso8601]  (default: session-delta)
       --timeunit [us | ms]  (default: us)
-      --serverport <port>  (default: 7687)
       --session [<n> | all]  
           Filter which sessions to show, session id is incrementally determined in order of sessions appearing in the data dump.  (default: all)
       --skip <n>  Skip n packets before starting output    (default: 0)
