@@ -27,13 +27,14 @@ public class WebsocketTest
                 "0000000764\tsession-011\tServer\t{\"type\":\"<HANDSHAKE RESPONSE>\"}\n" +
                 "0000002275\tsession-011\tServer\t{\"meta\":{\"server\":\"Neo4j/3.3.3\"},\"type\":\"SUCCESS\"}\n" +
                 "0000000065\tsession-011\tClient\t\n" +
-                "0000012725\tsession-011\tClient\t{\"statement\":\"CALL db.indexes()\",\"type\":\"RUN\",\"params\":{}}\n" +
+                "0000012725\tsession-011\tClient\t{\"queryNo\":0,\"statement\":\"CALL db.indexes()\",\"type\":\"RUN\",\"params\":{}}\n" +
                 "{\"type\":\"PULL_ALL\"}\n" +
                 "0000007864\tsession-011\tServer\t{\"meta\":{\"fields\":[\"description\",\"label\",\"properties\",\"state\",\"type\",\"provider\"],\"result_available_after\":4},\"type\":\"SUCCESS\"}\n" +
                 "{\"meta\":{\"result_consumed_after\":0,\"type\":\"r\"},\"type\":\"SUCCESS\"}\n" +
                 "0000007481\tsession-011\tClient\t{\"type\":\"RESET\"}\n" +
-                "0000002338\tsession-011\tClient\t{\"statement\":\"CREATE ({hello:\\\"World\\\"})\",\"type\":\"RUN\",\"params\":{}}\n" +
-                "{\"type\":\"PULL_ALL\"}\n" + "0000000177\tsession-011\tServer\t{\"meta\":{},\"type\":\"SUCCESS\"}");
+                "0000002338\tsession-011\tClient\t{\"queryNo\":1,\"statement\":\"CREATE ({hello:\\\"World\\\"})\",\"type\":\"RUN\",\"params\":{}}\n" +
+                "{\"type\":\"PULL_ALL\"}\n" +
+                "0000000177\tsession-011\tServer\t{\"meta\":{},\"type\":\"SUCCESS\"}");
     }
 
     static class OutputCapture {

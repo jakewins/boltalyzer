@@ -37,17 +37,20 @@ More details here: https://danielmiessler.com/study/tcpdump/
 
     $ boltalyzer -h
     Usage: boltalyzer [--timemode <mode>] [--timeunit <unit>]
-                      [--session <session id>] [--skip <n messages>]
-                      [--exclude-empty-packets]
+                      [--session <session no>] [--query <query no>]
+                      [--skip <n messages>] [--exclude-empty-packets]
                       <command> <TCPDUMP_FILE>
     
     Commands:
     
-      boltalyzer log <TCPDUMP_FILE> [options] [--truncate-results]
+      boltalyzer log <TCPDUMP_FILE> [options] [--no-results]
+                                    [--no-params] [--truncate-queries <n>]
     
           Output a play-by-play of the Bolt traffic in TCPDUMP_FILE.
     
-          --truncate-results  Don't print full query results
+          --no-results  Don't print query results
+          --no-params  Don't print parameters
+          --truncate-queries <n> Truncate queries at <n> characters
     
       boltalyzer replay <TCPDUMP_FILE> [options] --target bolt://neo4j:neo4j@localhost:7687
     
@@ -61,10 +64,14 @@ More details here: https://danielmiessler.com/study/tcpdump/
     Options
       --timemode [epoch | global-incremental | session-delta | iso8601]  (default: session-delta)
       --timeunit [us | ms]  (default: us)
-      --session [<n> | all]  
-          Filter which sessions to show, session id is incrementally determined in order of sessions appearing in the data dump.  (default: all)
+      --session <session no>  
+          Only work on this session, session no is incrementally determined in order of sessions
+          appearing in the data dump
+      --query <query no>        Only work on this query, query no is incremental per session. This currently only filters
+          the actual RUN statement, not related messages.
       --skip <n>  Skip n packets before starting output    (default: 0)
       -h  Print this message
+
 
 ## License
 
