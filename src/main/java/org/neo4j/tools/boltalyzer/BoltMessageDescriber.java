@@ -34,6 +34,7 @@ public class BoltMessageDescriber implements MessageHandler<RuntimeException>
 {
     public static final String MSG_RECORD = "RECORD";
     public static final String MSG_RUN = "RUN";
+    private long queryNo = 0;
     private final List<Dict> messages = new ArrayList<>();
 
     @Override
@@ -42,7 +43,8 @@ public class BoltMessageDescriber implements MessageHandler<RuntimeException>
         messages.add( dict(
                 Fields.Message.type, MSG_RUN,
                 Fields.Message.statement, statement,
-                Fields.Message.params, params ));
+                Fields.Message.params, params,
+                Fields.Message.queryNo, queryNo++ ));
     }
 
     @Override

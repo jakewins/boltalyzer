@@ -19,12 +19,12 @@
  */
 package org.neo4j.tools.boltalyzer;
 
-import org.neo4j.kernel.api.exceptions.Status;
-
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+
+import org.neo4j.kernel.api.exceptions.Status;
 
 import static org.neo4j.tools.boltalyzer.Field.field;
 
@@ -46,6 +46,7 @@ public class Fields
         public static final Field<String> type = field("type");
         public static final Field<String> statement = field("statement");
         public static final Field<Map<String, Object>> params = field("params");
+        public static final Field<Long> queryNo = field("queryNo");
         public static final Field<Object[]> fields = field("fields");
         public static final Field<Map<String, Object>> metadata = field("meta");
         public static final Field<Status> status = field("status");

@@ -73,8 +73,8 @@ public class Boltalyzer
         {
             System.out.println(
                     "Usage: boltalyzer [--timemode <mode>] [--timeunit <unit>]\n" +
-                    "                  [--session <session id>] [--skip <n messages>]\n" +
-                    "                  [--exclude-empty-packets]\n" +
+                    "                  [--session <session no>] [--query <query no>]\n" +
+                    "                  [--skip <n messages>] [--exclude-empty-packets]\n" +
                     "                  <command> <TCPDUMP_FILE>\n" +
                     "\n" +
                     "Commands:\n" +
@@ -100,8 +100,12 @@ public class Boltalyzer
                     "Options\n" +
                     "  --timemode [epoch | global-incremental | session-delta | iso8601]  (default: session-delta)\n" +
                     "  --timeunit [us | ms]  (default: us)\n" +
-                    "  --session [<n> | all]  \n" +
-                    "      Filter which sessions to show, session id is incrementally determined in order of sessions appearing in the data dump.  (default: all)\n" +
+                    "  --session <session no>  \n" +
+                    "      Only work on this session, session no is incrementally determined in order of sessions\n" +
+                    "      appearing in the data dump\n" +
+                    "  --query <query no>  " +
+                    "      Only work on this query, query no is incremental per session. This currently only filters\n" +
+                    "      the actual RUN statement, not related messages.\n" +
                     "  --skip <n>  Skip n packets before starting output    (default: 0)\n" +
                     "  -h  Print this message\n" +
                     "\n"
@@ -142,6 +146,9 @@ public class Boltalyzer
 
                         // Filter out to only look sessions the user cares about
                         .filter(sessionFilter(args.get("session", "all")))
+
+                        // Filter out to only look sessions the user cares about
+                        .map( queryFilter(args.get("query", "all")) )
 
                         // Filter out to only look sessions the user cares about
                         .filter(emptyPacketFilter(args.get("exclude-empty-packets", "false", "true")))
@@ -254,9 +261,7 @@ public class Boltalyzer
                 if( m.get( Message.type ).equals(BoltMessageDescriber.MSG_RUN ) ) {
                     String stmt = m.get( Message.statement );
                     if( stmt.length() > maxChars) {
-                        String trunc = stmt.substring( 0, maxChars );
-                        String truncated = String.format( "%s.. (truncated from %d chars)", trunc, stmt.length() );
-                        m.put( Message.statement, truncated );
+                        m.put( Message.statement, ellipsis(stmt, maxChars) );
                     }
                 }
             });
@@ -270,7 +275,6 @@ public class Boltalyzer
             return d -> {};
         }
 
-        Map<String, AtomicLong> queryIds = new HashMap<>();
         Path out = Paths.get(path);
         Files.createDirectories(out);
         return p -> {
@@ -278,10 +282,11 @@ public class Boltalyzer
                     .forEach(m -> {
                         if(m.get(Message.type).equals("RUN")) {
                             String session = p.get(Fields.session).name();
-                            Path qpath = out.resolve(String.format("%s-%s-Q%d.json", p.get(timeString), session,
-                                    queryIds.computeIfAbsent(session, s -> new AtomicLong()).getAndIncrement()));
+                            Path qpath = out.resolve(String.format("%s-%s-Q%d.json",
+                                    p.get(timeString), session, m.get( Message.queryNo )));
                             try {
                                 Bolt2JSON.mapper().writeValue(qpath.toFile(), dict(
+                                    "queryNo", m.get( Message.queryNo ),
                                     "statement", m.get(Message.statement),
                                     "params", m.get(Message.params),
                                     "time", p.get(Fields.timestamp)
@@ -336,13 +341,14 @@ public class Boltalyzer
 
             @Override
             public void accept(Dict p) {
-                if(streamStartTimeUs.get() == -1)
-                {
-                    streamStartTimeUs.set(p.get(Fields.timestamp));
-                }
                 p.get(Fields.messages, emptyList())
                         .forEach(m -> {
                             if(m.get(Message.type).equals("RUN")) {
+                                if(streamStartTimeUs.get() == -1)
+                                {
+                                    streamStartTimeUs.set(p.get(Fields.timestamp));
+                                }
+
                                 String sessionName = p.get(Fields.session).name();
 
                                 Pair<Session, ExecutorService> worker = sessions.computeIfAbsent(sessionName, newSession);
@@ -378,7 +384,7 @@ public class Boltalyzer
         if (input.length() < maxCharacters) {
             return input;
         }
-        return input.substring(0, maxCharacters - 3) + "...";
+        return String.format( "%s.. (truncated from %d chars)", input.substring(0, maxCharacters - 3), input.length() );
     }
 
     private static Predicate<Dict> sessionFilter( String name )
@@ -387,8 +393,30 @@ public class Boltalyzer
         {
         case "all": return (p) -> true;
         default:
-            long sessionId = Long.parseLong( name );
-            return (p) -> p.get( session ).id() == sessionId;
+            long queryNo = Long.parseLong( name );
+            return (p) -> p.get( session ).id() == queryNo;
+        }
+    }
+
+    private static Function<Dict, Dict> queryFilter( String name )
+    {
+        switch( name )
+        {
+        case "all": return (p) -> p;
+        default:
+            long queryNo = Long.parseLong( name );
+            return (p) -> {
+                if(!p.has( Fields.messages )) {
+                    return p;
+                }
+
+                p.put( Fields.messages, p.get( Fields.messages )
+                        .stream()
+                        .filter( m -> m.get( Message.queryNo, queryNo ) == queryNo )
+                        .collect( Collectors.toList()) );
+
+                return p;
+            };
         }
     }
 

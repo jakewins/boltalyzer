@@ -50,6 +50,10 @@ public class Dict extends HashMap<String, Object>
         return field.get( this );
     }
 
+    public boolean has( Field<?> field ) {
+        return get( field ) != null;
+    }
+
     public <T> T get(Field<T> field, T defaultValue) {
         T val = get(field);
         if( val == null ) {
